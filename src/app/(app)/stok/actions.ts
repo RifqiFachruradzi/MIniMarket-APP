@@ -29,7 +29,7 @@ export async function saveProduct(_: ActionState, formData: FormData): Promise<A
   const { id, isActive, ...data } = parsed.data;
   let savedId = id;
   try {
-    const dup = db
+    const dup = await db
       .select({ id: products.id })
       .from(products)
       .where(id ? and(eq(products.sku, data.sku), ne(products.id, id)) : eq(products.sku, data.sku))
@@ -37,9 +37,9 @@ export async function saveProduct(_: ActionState, formData: FormData): Promise<A
     if (dup) throw new AppError(`SKU ${data.sku} sudah dipakai produk lain.`);
     const values = { ...data, barcode: data.barcode || null, isActive: id ? isActive === "on" : true };
     if (id) {
-      db.update(products).set(values).where(eq(products.id, id)).run();
+      await db.update(products).set(values).where(eq(products.id, id)).run();
     } else {
-      savedId = db.insert(products).values(values).returning({ id: products.id }).get().id;
+      savedId = (await db.insert(products).values(values).returning({ id: products.id }).get()).id;
     }
   } catch (err) {
     return toActionError(err);

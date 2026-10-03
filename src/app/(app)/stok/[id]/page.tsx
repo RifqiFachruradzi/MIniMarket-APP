@@ -15,9 +15,9 @@ export const metadata = { title: "Detail Produk" };
 export default async function ProductPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ saved?: string }> }) {
   const { id } = await params;
   const { saved } = await searchParams;
-  const product = db.select().from(products).where(eq(products.id, Number(id))).get();
+  const product = await db.select().from(products).where(eq(products.id, Number(id))).get();
   if (!product) notFound();
-  const moves = db.select().from(stockMovements).where(eq(stockMovements.productId, product.id)).orderBy(desc(stockMovements.id)).limit(8).all();
+  const moves = await db.select().from(stockMovements).where(eq(stockMovements.productId, product.id)).orderBy(desc(stockMovements.id)).limit(8).all();
 
   return (
     <>
@@ -29,7 +29,7 @@ export default async function ProductPage({ params, searchParams }: { params: Pr
       )}
       <div className="grid gap-4 xl:grid-cols-3">
         <Card title="Informasi Produk" className="xl:col-span-2">
-          <ProductForm product={product} categories={productCategories()} />
+          <ProductForm product={product} categories={await productCategories()} />
         </Card>
         <div className="space-y-4">
           <Card title="Posisi Stok">

@@ -9,7 +9,7 @@ export const metadata = { title: "Neraca" };
 
 export default async function BalanceSheetPage({ searchParams }: { searchParams: Promise<{ to?: string }> }) {
   const { to = today() } = await searchParams;
-  const bs = balanceSheet(to);
+  const bs = await balanceSheet(to);
   return (
     <>
       <PageHeader title="Neraca (Balance Sheet)" description="Posisi aset, kewajiban, dan ekuitas pada tanggal tertentu." actions={<><PeriodFilter to={to} single /><PrintButton /></>} />

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CircleCheck, HandCoins, Plus } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { PrintButton } from "@/components/print-button";
 import { Badge, Card, LinkButton, PageHeader, PaymentStatusBadge } from "@/components/ui";
 import { formatDate, number, rupiah } from "@/lib/format";
@@ -11,13 +11,12 @@ export const metadata = { title: "Detail Penjualan" };
 export default async function SaleDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ new?: string }> }) {
   const { id } = await params;
   const { new: isNew } = await searchParams;
-  const sale = sqlite
-    .prepare(
+  const sale = (await queryOne(
       `SELECT s.*, c.name AS customer, c.phone AS customerPhone, a.name AS account, u.name AS cashier
          FROM sales s LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN accounts a ON a.id = s.cash_account_id
          LEFT JOIN users u ON u.id = s.user_id WHERE s.id = ?`,
-    )
-    .get(Number(id)) as
+    [Number(id)],
+  )) as
     | {
         id: number;
         number: string;
@@ -39,12 +38,8 @@ export default async function SaleDetailPage({ params, searchParams }: { params:
     | undefined;
   if (!sale) notFound();
 
-  const items = sqlite
-    .prepare(`SELECT i.*, p.name, p.sku, p.unit FROM sale_items i JOIN products p ON p.id = i.product_id WHERE i.sale_id = ? ORDER BY i.id`)
-    .all(sale.id) as { id: number; name: string; sku: string; unit: string; qty: number; price: number; subtotal: number }[];
-  const payments = sqlite
-    .prepare(`SELECT p.*, a.name AS account FROM customer_payments p JOIN accounts a ON a.id = p.cash_account_id WHERE p.sale_id = ? ORDER BY p.id`)
-    .all(sale.id) as { id: number; number: string; date: string; amount: number; account: string }[];
+  const items = (await query(`SELECT i.*, p.name, p.sku, p.unit FROM sale_items i JOIN products p ON p.id = i.product_id WHERE i.sale_id = ? ORDER BY i.id`, [sale.id])) as { id: number; name: string; sku: string; unit: string; qty: number; price: number; subtotal: number }[];
+  const payments = (await query(`SELECT p.*, a.name AS account FROM customer_payments p JOIN accounts a ON a.id = p.cash_account_id WHERE p.sale_id = ? ORDER BY p.id`, [sale.id])) as { id: number; number: string; date: string; amount: number; account: string }[];
   const outstanding = sale.total - sale.amount_paid;
 
   return (

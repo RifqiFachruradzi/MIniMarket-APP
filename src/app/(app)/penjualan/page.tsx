@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Plus, Receipt, Search, ShoppingCart, TrendingUp, Wallet } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { PAGE_SIZE, Pagination, pageParam } from "@/components/pagination";
 import { Badge, Card, EmptyState, LinkButton, PageHeader, PaymentStatusBadge, StatCard } from "@/components/ui";
 import { formatDate, rupiah, startOfMonth, today } from "@/lib/format";
@@ -31,20 +31,12 @@ export default async function SalesPage({ searchParams }: { searchParams: Promis
   }
   const whereSql = where.join(" AND ");
 
-  const summary = sqlite
-    .prepare(
-      `SELECT COUNT(*) AS count, COALESCE(SUM(s.total),0) AS total, COALESCE(SUM(s.cogs),0) AS cogs, COALESCE(SUM(s.total - s.amount_paid),0) AS outstanding
-         FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE ${whereSql}`,
-    )
-    .get(params) as { count: number; total: number; cogs: number; outstanding: number };
-  const rows = sqlite
-    .prepare(
-      `SELECT s.id, s.number, s.date, s.total, s.discount, s.amount_paid AS amountPaid, s.status, s.payment_type AS paymentType,
+  const summary = (await queryOne(`SELECT COUNT(*) AS count, COALESCE(SUM(s.total),0) AS total, COALESCE(SUM(s.cogs),0) AS cogs, COALESCE(SUM(s.total - s.amount_paid),0) AS outstanding
+         FROM sales s LEFT JOIN customers c ON c.id = s.customer_id WHERE ${whereSql}`, params)) as { count: number; total: number; cogs: number; outstanding: number };
+  const rows = (await query(`SELECT s.id, s.number, s.date, s.total, s.discount, s.amount_paid AS amountPaid, s.status, s.payment_type AS paymentType,
               c.name AS customer, a.name AS account, (SELECT SUM(qty) FROM sale_items i WHERE i.sale_id = s.id) AS qty
          FROM sales s LEFT JOIN customers c ON c.id = s.customer_id LEFT JOIN accounts a ON a.id = s.cash_account_id
-        WHERE ${whereSql} ORDER BY s.date DESC, s.id DESC LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`,
-    )
-    .all(params) as {
+        WHERE ${whereSql} ORDER BY s.date DESC, s.id DESC LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`, params)) as {
     id: number;
     number: string;
     date: string;

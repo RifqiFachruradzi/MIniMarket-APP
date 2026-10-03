@@ -15,7 +15,7 @@ export async function submitSale(_: ActionState, formData: FormData): Promise<Ac
 
   let saleId: number;
   try {
-    const sale = createSale({
+    const sale = await createSale({
       date: String(formData.get("date")),
       paymentType,
       cashAccountId: optionalId(formData.get("cashAccountId")),

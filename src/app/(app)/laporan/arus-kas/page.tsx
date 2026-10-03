@@ -10,7 +10,7 @@ export default async function CashFlowPage({ searchParams }: { searchParams: Pro
   const sp = await searchParams;
   const from = sp.from || startOfMonth();
   const to = sp.to || today();
-  const cf = cashFlow(from, to);
+  const cf = await cashFlow(from, to);
   const fmt = (d: string) => formatDate(d, { day: "numeric", month: "long", year: "numeric" });
 
   return (

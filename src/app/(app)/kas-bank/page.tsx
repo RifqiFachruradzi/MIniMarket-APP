@@ -14,12 +14,12 @@ export const metadata = { title: "Kas & Bank" };
 
 export default async function CashBankPage({ searchParams }: { searchParams: Promise<{ account?: string; from?: string; to?: string }> }) {
   const sp = await searchParams;
-  const balances = cashBalances();
+  const balances = await cashBalances();
   const selected = balances.find((b) => b.id === Number(sp.account)) ?? balances[0];
   const from = sp.from || startOfMonth();
   const to = sp.to || today();
-  const ledger = selected ? cashLedger(selected.id, from, to) : null;
-  const all = db.select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type, isCash: accounts.isCash, isSystem: accounts.isSystem }).from(accounts).orderBy(asc(accounts.code)).all();
+  const ledger = selected ? await cashLedger(selected.id, from, to) : null;
+  const all = await db.select({ id: accounts.id, code: accounts.code, name: accounts.name, type: accounts.type, isCash: accounts.isCash, isSystem: accounts.isSystem }).from(accounts).orderBy(asc(accounts.code)).all();
   const cashAccounts = all.filter((a) => a.isCash);
   const counterAccounts = all.filter((a) => !a.isCash && !a.isSystem);
   const total = balances.reduce((s, b) => s + b.balance, 0);

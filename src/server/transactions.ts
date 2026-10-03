@@ -54,17 +54,18 @@ export type SaleInput = {
   items: { productId: number; qty: number; price?: number }[];
 };
 
-export function createSale(input: SaleInput) {
+export async function createSale(input: SaleInput) {
   assertDate(input.date);
   assertItems(input.items);
-  return db.transaction((tx) => {
-    const lines = input.items.map((it) => {
-      const p = tx.select().from(products).where(eq(products.id, it.productId)).get();
+  return db.transaction(async (tx) => {
+    const lines: { productId: number; qty: number; price: number; subtotal: number }[] = [];
+    for (const it of input.items) {
+      const p = await tx.select().from(products).where(eq(products.id, it.productId)).get();
       if (!p) throw new AppError("Produk tidak ditemukan.");
       const price = it.price ?? p.sellPrice;
       if (price < 0) throw new AppError("Harga jual tidak valid.");
-      return { ...it, price, subtotal: price * it.qty };
-    });
+      lines.push({ productId: it.productId, qty: it.qty, price, subtotal: price * it.qty });
+    }
     const subtotal = lines.reduce((s, l) => s + l.subtotal, 0);
     const discount = Math.max(0, Math.round(input.discount ?? 0));
     if (discount > subtotal) throw new AppError("Diskon melebihi subtotal.");
@@ -73,17 +74,17 @@ export function createSale(input: SaleInput) {
     let cashAccountId: number | null = null;
     let customerId: number | null = input.customerId ?? null;
     if (input.paymentType === "cash") {
-      cashAccountId = input.cashAccountId ?? accountIdByCode(tx, ACC.CASH);
-      assertCashAccount(tx, cashAccountId);
+      cashAccountId = input.cashAccountId ?? (await accountIdByCode(tx, ACC.CASH));
+      await assertCashAccount(tx, cashAccountId);
       if ((input.tendered ?? total) < total) throw new AppError("Uang yang diterima kurang dari total belanja.");
     } else {
       if (!customerId) throw new AppError("Penjualan kredit wajib memilih pelanggan.");
-      if (!tx.select().from(customers).where(eq(customers.id, customerId)).get()) throw new AppError("Pelanggan tidak ditemukan.");
+      if (!(await tx.select().from(customers).where(eq(customers.id, customerId)).get())) throw new AppError("Pelanggan tidak ditemukan.");
     }
 
-    const number = nextNumber(tx, sales, "INV", input.date);
+    const number = await nextNumber(tx, sales, "INV", input.date);
     const amountPaid = input.paymentType === "cash" ? total : 0;
-    const sale = tx
+    const sale = await tx
       .insert(sales)
       .values({
         number,
@@ -105,27 +106,27 @@ export function createSale(input: SaleInput) {
 
     let cogs = 0;
     for (const l of lines) {
-      const { cost, unitCost } = stockOut(tx, { productId: l.productId, qty: l.qty, date: input.date, type: "sale", reference: number });
+      const { cost, unitCost } = await stockOut(tx, { productId: l.productId, qty: l.qty, date: input.date, type: "sale", reference: number });
       cogs += cost;
-      tx.insert(saleItems).values({ saleId: sale.id, productId: l.productId, qty: l.qty, price: l.price, unitCost, subtotal: l.subtotal }).run();
+      await tx.insert(saleItems).values({ saleId: sale.id, productId: l.productId, qty: l.qty, price: l.price, unitCost, subtotal: l.subtotal }).run();
     }
-    tx.update(sales).set({ cogs }).where(eq(sales.id, sale.id)).run();
+    await tx.update(sales).set({ cogs }).where(eq(sales.id, sale.id)).run();
 
-    const debitAccount = input.paymentType === "cash" ? cashAccountId! : accountIdByCode(tx, ACC.RECEIVABLE);
-    postJournal(
+    const debitAccount = input.paymentType === "cash" ? cashAccountId! : await accountIdByCode(tx, ACC.RECEIVABLE);
+    await postJournal(
       tx,
       { date: input.date, reference: number, description: `Penjualan ${number}`, source: "sale" },
       [
         { accountId: debitAccount, debit: total },
-        { accountId: accountIdByCode(tx, ACC.SALES), credit: total },
+        { accountId: await accountIdByCode(tx, ACC.SALES), credit: total },
       ],
     );
-    postJournal(
+    await postJournal(
       tx,
       { date: input.date, reference: number, description: `HPP penjualan ${number}`, source: "sale_cogs" },
       [
-        { accountId: accountIdByCode(tx, ACC.COGS), debit: cogs },
-        { accountId: accountIdByCode(tx, ACC.INVENTORY), credit: cogs },
+        { accountId: await accountIdByCode(tx, ACC.COGS), debit: cogs },
+        { accountId: await accountIdByCode(tx, ACC.INVENTORY), credit: cogs },
       ],
     );
     return { id: sale.id, number };
@@ -136,30 +137,30 @@ export function createSale(input: SaleInput) {
 // Penerimaan pembayaran pelanggan (pelunasan piutang)
 // ---------------------------------------------------------------------------
 
-export function receiveCustomerPayment(input: { date: string; saleId: number; cashAccountId: number; amount: number; note?: string }) {
+export async function receiveCustomerPayment(input: { date: string; saleId: number; cashAccountId: number; amount: number; note?: string }) {
   assertDate(input.date);
-  return db.transaction((tx) => {
-    const sale = tx.select().from(sales).where(eq(sales.id, input.saleId)).get();
+  return db.transaction(async (tx) => {
+    const sale = await tx.select().from(sales).where(eq(sales.id, input.saleId)).get();
     if (!sale) throw new AppError("Faktur penjualan tidak ditemukan.");
     const outstanding = sale.total - sale.amountPaid;
     const amount = Math.round(input.amount);
     if (amount <= 0) throw new AppError("Nominal pembayaran harus lebih dari 0.");
     if (amount > outstanding) throw new AppError(`Nominal melebihi sisa piutang (${outstanding.toLocaleString("id-ID")}).`);
-    assertCashAccount(tx, input.cashAccountId);
+    await assertCashAccount(tx, input.cashAccountId);
 
-    const number = nextNumber(tx, customerPayments, "RCV", input.date);
-    tx.insert(customerPayments)
+    const number = await nextNumber(tx, customerPayments, "RCV", input.date);
+    await tx.insert(customerPayments)
       .values({ number, date: input.date, saleId: sale.id, customerId: sale.customerId, cashAccountId: input.cashAccountId, amount, note: input.note || null })
       .run();
     const paid = sale.amountPaid + amount;
-    tx.update(sales).set({ amountPaid: paid, status: paymentStatus(sale.total, paid) }).where(eq(sales.id, sale.id)).run();
+    await tx.update(sales).set({ amountPaid: paid, status: paymentStatus(sale.total, paid) }).where(eq(sales.id, sale.id)).run();
 
-    postJournal(
+    await postJournal(
       tx,
       { date: input.date, reference: number, description: `Penerimaan piutang ${sale.number}`, source: "customer_payment" },
       [
         { accountId: input.cashAccountId, debit: amount },
-        { accountId: accountIdByCode(tx, ACC.RECEIVABLE), credit: amount },
+        { accountId: await accountIdByCode(tx, ACC.RECEIVABLE), credit: amount },
       ],
     );
     return { number };
@@ -181,17 +182,17 @@ export type GoodsReceiptInput = {
   items: { productId: number; qty: number; unitCost: number }[];
 };
 
-export function createGoodsReceipt(input: GoodsReceiptInput) {
+export async function createGoodsReceipt(input: GoodsReceiptInput) {
   assertDate(input.date);
   assertItems(input.items);
-  const result = db.transaction((tx) => {
-    if (!tx.select().from(suppliers).where(eq(suppliers.id, input.supplierId)).get()) throw new AppError("Pemasok tidak ditemukan.");
+  const result = await db.transaction(async (tx) => {
+    if (!(await tx.select().from(suppliers).where(eq(suppliers.id, input.supplierId)).get())) throw new AppError("Pemasok tidak ditemukan.");
     for (const it of input.items) {
       if (!Number.isFinite(it.unitCost) || it.unitCost < 0) throw new AppError("Harga beli tidak valid.");
     }
     const total = input.items.reduce((s, it) => s + Math.round(it.unitCost) * it.qty, 0);
-    const number = nextNumber(tx, goodsReceipts, "GRN", input.date);
-    const receipt = tx
+    const number = await nextNumber(tx, goodsReceipts, "GRN", input.date);
+    const receipt = await tx
       .insert(goodsReceipts)
       .values({
         number,
@@ -209,23 +210,23 @@ export function createGoodsReceipt(input: GoodsReceiptInput) {
 
     for (const it of input.items) {
       const unitCost = Math.round(it.unitCost);
-      stockIn(tx, { productId: it.productId, qty: it.qty, unitCost, date: input.date, type: "receipt", reference: number });
-      tx.insert(goodsReceiptItems).values({ receiptId: receipt.id, productId: it.productId, qty: it.qty, unitCost, subtotal: unitCost * it.qty }).run();
+      await stockIn(tx, { productId: it.productId, qty: it.qty, unitCost, date: input.date, type: "receipt", reference: number });
+      await tx.insert(goodsReceiptItems).values({ receiptId: receipt.id, productId: it.productId, qty: it.qty, unitCost, subtotal: unitCost * it.qty }).run();
     }
 
-    postJournal(
+    await postJournal(
       tx,
       { date: input.date, reference: number, description: `Penerimaan barang ${number}`, source: "goods_receipt" },
       [
-        { accountId: accountIdByCode(tx, ACC.INVENTORY), debit: total },
-        { accountId: accountIdByCode(tx, ACC.PAYABLE), credit: total },
+        { accountId: await accountIdByCode(tx, ACC.INVENTORY), debit: total },
+        { accountId: await accountIdByCode(tx, ACC.PAYABLE), credit: total },
       ],
     );
     return { id: receipt.id, number, total };
   });
 
   if (input.payNowAccountId && result.total > 0) {
-    paySupplier({ date: input.date, receiptId: result.id, cashAccountId: input.payNowAccountId, amount: result.total, note: "Dibayar tunai saat penerimaan" });
+    await paySupplier({ date: input.date, receiptId: result.id, cashAccountId: input.payNowAccountId, amount: result.total, note: "Dibayar tunai saat penerimaan" });
   }
   return result;
 }
@@ -234,29 +235,29 @@ export function createGoodsReceipt(input: GoodsReceiptInput) {
 // Pembayaran pemasok (pelunasan hutang)
 // ---------------------------------------------------------------------------
 
-export function paySupplier(input: { date: string; receiptId: number; cashAccountId: number; amount: number; note?: string }) {
+export async function paySupplier(input: { date: string; receiptId: number; cashAccountId: number; amount: number; note?: string }) {
   assertDate(input.date);
-  return db.transaction((tx) => {
-    const receipt = tx.select().from(goodsReceipts).where(eq(goodsReceipts.id, input.receiptId)).get();
+  return db.transaction(async (tx) => {
+    const receipt = await tx.select().from(goodsReceipts).where(eq(goodsReceipts.id, input.receiptId)).get();
     if (!receipt) throw new AppError("Dokumen penerimaan barang tidak ditemukan.");
     const outstanding = receipt.total - receipt.amountPaid;
     const amount = Math.round(input.amount);
     if (amount <= 0) throw new AppError("Nominal pembayaran harus lebih dari 0.");
     if (amount > outstanding) throw new AppError(`Nominal melebihi sisa hutang (${outstanding.toLocaleString("id-ID")}).`);
-    assertCashAccount(tx, input.cashAccountId);
+    await assertCashAccount(tx, input.cashAccountId);
 
-    const number = nextNumber(tx, supplierPayments, "PAY", input.date);
-    tx.insert(supplierPayments)
+    const number = await nextNumber(tx, supplierPayments, "PAY", input.date);
+    await tx.insert(supplierPayments)
       .values({ number, date: input.date, receiptId: receipt.id, supplierId: receipt.supplierId, cashAccountId: input.cashAccountId, amount, note: input.note || null })
       .run();
     const paid = receipt.amountPaid + amount;
-    tx.update(goodsReceipts).set({ amountPaid: paid, status: paymentStatus(receipt.total, paid) }).where(eq(goodsReceipts.id, receipt.id)).run();
+    await tx.update(goodsReceipts).set({ amountPaid: paid, status: paymentStatus(receipt.total, paid) }).where(eq(goodsReceipts.id, receipt.id)).run();
 
-    postJournal(
+    await postJournal(
       tx,
       { date: input.date, reference: number, description: `Pembayaran pemasok ${receipt.number}`, source: "supplier_payment" },
       [
-        { accountId: accountIdByCode(tx, ACC.PAYABLE), debit: amount },
+        { accountId: await accountIdByCode(tx, ACC.PAYABLE), debit: amount },
         { accountId: input.cashAccountId, credit: amount },
       ],
     );
@@ -268,27 +269,27 @@ export function paySupplier(input: { date: string; receiptId: number; cashAccoun
 // Pengeluaran barang (rusak, kedaluwarsa, hilang, pemakaian internal)
 // ---------------------------------------------------------------------------
 
-export function createGoodsIssue(input: { date: string; reason: string; note?: string; items: { productId: number; qty: number }[] }) {
+export async function createGoodsIssue(input: { date: string; reason: string; note?: string; items: { productId: number; qty: number }[] }) {
   assertDate(input.date);
   assertItems(input.items);
   if (!input.reason) throw new AppError("Alasan pengeluaran wajib diisi.");
-  return db.transaction((tx) => {
-    const number = nextNumber(tx, goodsIssues, "GIN", input.date);
-    const issue = tx.insert(goodsIssues).values({ number, date: input.date, reason: input.reason, totalCost: 0, note: input.note || null }).returning().get();
+  return db.transaction(async (tx) => {
+    const number = await nextNumber(tx, goodsIssues, "GIN", input.date);
+    const issue = await tx.insert(goodsIssues).values({ number, date: input.date, reason: input.reason, totalCost: 0, note: input.note || null }).returning().get();
     let totalCost = 0;
     for (const it of input.items) {
-      const { cost, unitCost } = stockOut(tx, { productId: it.productId, qty: it.qty, date: input.date, type: "issue", reference: number, note: input.reason });
+      const { cost, unitCost } = await stockOut(tx, { productId: it.productId, qty: it.qty, date: input.date, type: "issue", reference: number, note: input.reason });
       totalCost += cost;
-      tx.insert(goodsIssueItems).values({ issueId: issue.id, productId: it.productId, qty: it.qty, unitCost, subtotal: cost }).run();
+      await tx.insert(goodsIssueItems).values({ issueId: issue.id, productId: it.productId, qty: it.qty, unitCost, subtotal: cost }).run();
     }
-    tx.update(goodsIssues).set({ totalCost }).where(eq(goodsIssues.id, issue.id)).run();
+    await tx.update(goodsIssues).set({ totalCost }).where(eq(goodsIssues.id, issue.id)).run();
 
-    postJournal(
+    await postJournal(
       tx,
       { date: input.date, reference: number, description: `Pengeluaran barang (${input.reason}) ${number}`, source: "goods_issue" },
       [
-        { accountId: accountIdByCode(tx, ACC.INVENTORY_LOSS), debit: totalCost },
-        { accountId: accountIdByCode(tx, ACC.INVENTORY), credit: totalCost },
+        { accountId: await accountIdByCode(tx, ACC.INVENTORY_LOSS), debit: totalCost },
+        { accountId: await accountIdByCode(tx, ACC.INVENTORY), credit: totalCost },
       ],
     );
     return { id: issue.id, number };
@@ -299,27 +300,27 @@ export function createGoodsIssue(input: { date: string; reason: string; note?: s
 // Stock opname (penyesuaian stok fisik)
 // ---------------------------------------------------------------------------
 
-export function createStockAdjustment(input: { date: string; productId: number; physicalQty: number; note?: string }) {
+export async function createStockAdjustment(input: { date: string; productId: number; physicalQty: number; note?: string }) {
   assertDate(input.date);
   if (!Number.isInteger(input.physicalQty) || input.physicalQty < 0) throw new AppError("Stok fisik harus bilangan bulat ≥ 0.");
-  return db.transaction((tx) => {
-    const p = tx.select().from(products).where(eq(products.id, input.productId)).get();
+  return db.transaction(async (tx) => {
+    const p = await tx.select().from(products).where(eq(products.id, input.productId)).get();
     if (!p) throw new AppError("Produk tidak ditemukan.");
     const diff = input.physicalQty - p.stock;
     if (diff === 0) throw new AppError("Stok fisik sama dengan stok sistem, tidak ada penyesuaian.");
-    const number = nextNumber(tx, stockAdjustments, "ADJ", input.date);
+    const number = await nextNumber(tx, stockAdjustments, "ADJ", input.date);
     const unitCost = p.avgCost;
     let value: number;
-    if (diff > 0) value = stockIn(tx, { productId: p.id, qty: diff, unitCost, date: input.date, type: "adjustment", reference: number, note: input.note });
-    else value = stockOut(tx, { productId: p.id, qty: -diff, date: input.date, type: "adjustment", reference: number, note: input.note }).cost;
+    if (diff > 0) value = await stockIn(tx, { productId: p.id, qty: diff, unitCost, date: input.date, type: "adjustment", reference: number, note: input.note });
+    else value = (await stockOut(tx, { productId: p.id, qty: -diff, date: input.date, type: "adjustment", reference: number, note: input.note })).cost;
 
-    tx.insert(stockAdjustments)
+    await tx.insert(stockAdjustments)
       .values({ number, date: input.date, productId: p.id, systemQty: p.stock, physicalQty: input.physicalQty, difference: diff, unitCost, value, note: input.note || null })
       .run();
 
-    const inv = accountIdByCode(tx, ACC.INVENTORY);
-    const variance = accountIdByCode(tx, ACC.INVENTORY_VARIANCE);
-    postJournal(
+    const inv = await accountIdByCode(tx, ACC.INVENTORY);
+    const variance = await accountIdByCode(tx, ACC.INVENTORY_VARIANCE);
+    await postJournal(
       tx,
       { date: input.date, reference: number, description: `Stock opname ${p.name}`, source: "stock_adjustment" },
       diff > 0
@@ -340,7 +341,7 @@ export function createStockAdjustment(input: { date: string; productId: number; 
 // Kas & bank
 // ---------------------------------------------------------------------------
 
-export function createCashTransaction(input: {
+export async function createCashTransaction(input: {
   date: string;
   type: "in" | "out" | "transfer";
   cashAccountId: number;
@@ -352,9 +353,9 @@ export function createCashTransaction(input: {
   const amount = Math.round(input.amount);
   if (amount <= 0) throw new AppError("Nominal harus lebih dari 0.");
   if (!input.description.trim()) throw new AppError("Keterangan wajib diisi.");
-  return db.transaction((tx) => {
-    assertCashAccount(tx, input.cashAccountId);
-    const counter = tx.select().from(accounts).where(eq(accounts.id, input.counterAccountId)).get();
+  return db.transaction(async (tx) => {
+    await assertCashAccount(tx, input.cashAccountId);
+    const counter = await tx.select().from(accounts).where(eq(accounts.id, input.counterAccountId)).get();
     if (!counter) throw new AppError("Akun lawan tidak ditemukan.");
     if (input.type === "transfer") {
       if (!counter.isCash) throw new AppError("Akun tujuan transfer harus akun kas/bank.");
@@ -364,8 +365,8 @@ export function createCashTransaction(input: {
     }
 
     const prefix = input.type === "in" ? "CIN" : input.type === "out" ? "COUT" : "TRF";
-    const number = nextNumber(tx, cashTransactions, prefix, input.date);
-    tx.insert(cashTransactions)
+    const number = await nextNumber(tx, cashTransactions, prefix, input.date);
+    await tx.insert(cashTransactions)
       .values({ number, date: input.date, type: input.type, cashAccountId: input.cashAccountId, counterAccountId: counter.id, amount, description: input.description.trim() })
       .run();
 
@@ -380,7 +381,7 @@ export function createCashTransaction(input: {
             { accountId: counter.id, debit: amount },
             { accountId: input.cashAccountId, credit: amount },
           ];
-    postJournal(tx, { date: input.date, reference: number, description: input.description.trim(), source: "cash" }, lines);
+    await postJournal(tx, { date: input.date, reference: number, description: input.description.trim(), source: "cash" }, lines);
     return { number };
   });
 }
@@ -389,15 +390,15 @@ export function createCashTransaction(input: {
 // Saldo awal persediaan (dipakai saat setup / produk baru dengan stok awal)
 // ---------------------------------------------------------------------------
 
-export function openingStock(tx: Tx, input: { date: string; productId: number; qty: number; unitCost: number }) {
+export async function openingStock(tx: Tx, input: { date: string; productId: number; qty: number; unitCost: number }) {
   const reference = `OPEN-${input.productId}`;
-  const value = stockIn(tx, { ...input, type: "opening", reference, note: "Saldo awal" });
-  postJournal(
+  const value = await stockIn(tx, { ...input, type: "opening", reference, note: "Saldo awal" });
+  await postJournal(
     tx,
     { date: input.date, reference, description: "Saldo awal persediaan", source: "opening" },
     [
-      { accountId: accountIdByCode(tx, ACC.INVENTORY), debit: value },
-      { accountId: accountIdByCode(tx, ACC.CAPITAL), credit: value },
+      { accountId: await accountIdByCode(tx, ACC.INVENTORY), debit: value },
+      { accountId: await accountIdByCode(tx, ACC.CAPITAL), credit: value },
     ],
   );
 }

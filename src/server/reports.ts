@@ -1,4 +1,4 @@
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 
 type AccountBalanceRow = {
   id: number;
@@ -16,10 +16,8 @@ export type ReportLine = { code: string; name: string; amount: number };
 export type ReportSection = { title: string; lines: ReportLine[]; total: number };
 
 /** Saldo debit/kredit per akun untuk rentang tanggal (inklusif). */
-function accountBalances(from: string | null, to: string): AccountBalanceRow[] {
-  return sqlite
-    .prepare(
-      `SELECT a.id, a.code, a.name, a.type, a.report_group AS "group", a.cashflow, a.is_cash AS isCash,
+async function accountBalances(from: string | null, to: string): Promise<AccountBalanceRow[]> {
+  return (await query(`SELECT a.id, a.code, a.name, a.type, a.report_group AS "group", a.cashflow, a.is_cash AS isCash,
               COALESCE(b.debit, 0) AS debit, COALESCE(b.credit, 0) AS credit
          FROM accounts a
          LEFT JOIN (
@@ -28,9 +26,7 @@ function accountBalances(from: string | null, to: string): AccountBalanceRow[] {
                WHERE e.date <= @to AND (@from IS NULL OR e.date >= @from)
                GROUP BY l.account_id
          ) b ON b.account_id = a.id
-        ORDER BY a.code`,
-    )
-    .all({ from, to }) as AccountBalanceRow[];
+        ORDER BY a.code`, { from, to })) as AccountBalanceRow[];
 }
 
 /** Saldo normal: aset & beban bertambah di debit; kewajiban, ekuitas, pendapatan di kredit. */
@@ -49,8 +45,8 @@ function section(title: string, rows: AccountBalanceRow[], hideZero = true): Rep
 // Laporan Laba Rugi
 // ---------------------------------------------------------------------------
 
-export function incomeStatement(from: string, to: string) {
-  const rows = accountBalances(from, to);
+export async function incomeStatement(from: string, to: string) {
+  const rows = await accountBalances(from, to);
   const revenue = section("Pendapatan Usaha", rows.filter((r) => r.type === "revenue" && r.group !== "other"));
   const cogs = section("Harga Pokok Penjualan", rows.filter((r) => r.type === "expense" && r.group === "cogs"));
   const grossProfit = revenue.total - cogs.total;
@@ -66,8 +62,8 @@ export function incomeStatement(from: string, to: string) {
 // Neraca (Balance Sheet)
 // ---------------------------------------------------------------------------
 
-export function balanceSheet(asOf: string) {
-  const rows = accountBalances(null, asOf);
+export async function balanceSheet(asOf: string) {
+  const rows = await accountBalances(null, asOf);
   const currentAssets = section("Aset Lancar", rows.filter((r) => r.type === "asset" && r.group !== "fixed"));
   const fixedAssets = section("Aset Tetap", rows.filter((r) => r.type === "asset" && r.group === "fixed"));
   const totalAssets = currentAssets.total + fixedAssets.total;
@@ -77,7 +73,7 @@ export function balanceSheet(asOf: string) {
 
   // Laba berjalan = akumulasi pendapatan - beban (tanpa jurnal penutup)
   const yearStart = `${asOf.slice(0, 4)}-01-01`;
-  const currentYear = accountBalances(yearStart, asOf);
+  const currentYear = await accountBalances(yearStart, asOf);
   const sumPL = (rs: AccountBalanceRow[]) =>
     rs.filter((r) => r.type === "revenue").reduce((s, r) => s + normalBalance(r), 0) -
     rs.filter((r) => r.type === "expense").reduce((s, r) => s + normalBalance(r), 0);
@@ -104,19 +100,13 @@ const CASHFLOW_NAMES: Record<string, { in: string; out: string }> = {
   "3-1200": { in: "Pengembalian prive", out: "Prive pemilik" },
 };
 
-export function cashFlow(from: string, to: string) {
-  const opening = sqlite
-    .prepare(
-      `SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v
+export async function cashFlow(from: string, to: string) {
+  const opening = (await queryOne(`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v
          FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id JOIN accounts a ON a.id = l.account_id
-        WHERE a.is_cash = 1 AND e.date < ?`,
-    )
-    .get(from) as { v: number };
+        WHERE a.is_cash = 1 AND e.date < ?`, [from])) as { v: number };
 
   // Untuk setiap jurnal yang melibatkan akun kas, dampak kas dari lawan akun = kredit - debit
-  const rows = sqlite
-    .prepare(
-      `SELECT a.code, a.name, a.cashflow, SUM(l.credit - l.debit) AS amount
+  const rows = (await query(`SELECT a.code, a.name, a.cashflow, SUM(l.credit - l.debit) AS amount
          FROM journal_lines l
          JOIN journal_entries e ON e.id = l.entry_id
          JOIN accounts a ON a.id = l.account_id
@@ -126,9 +116,7 @@ export function cashFlow(from: string, to: string) {
                        WHERE c.entry_id = e.id AND ca.is_cash = 1)
         GROUP BY a.id
         HAVING amount <> 0
-        ORDER BY a.code`,
-    )
-    .all({ from, to }) as { code: string; name: string; cashflow: string; amount: number }[];
+        ORDER BY a.code`, { from, to })) as { code: string; name: string; cashflow: string; amount: number }[];
 
   const build = (category: string, title: string): ReportSection => {
     const lines = rows
@@ -152,33 +140,21 @@ export function cashFlow(from: string, to: string) {
 // Saldo kas & bank
 // ---------------------------------------------------------------------------
 
-export function cashBalances(asOf?: string) {
-  return sqlite
-    .prepare(
-      `SELECT a.id, a.code, a.name,
+export async function cashBalances(asOf?: string) {
+  return (await query(`SELECT a.id, a.code, a.name,
               COALESCE((SELECT SUM(l.debit - l.credit) FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
                          WHERE l.account_id = a.id AND (@asOf IS NULL OR e.date <= @asOf)), 0) AS balance
-         FROM accounts a WHERE a.is_cash = 1 ORDER BY a.code`,
-    )
-    .all({ asOf: asOf ?? null }) as { id: number; code: string; name: string; balance: number }[];
+         FROM accounts a WHERE a.is_cash = 1 ORDER BY a.code`, { asOf: asOf ?? null })) as { id: number; code: string; name: string; balance: number }[];
 }
 
 /** Mutasi rekening untuk satu akun kas/bank */
-export function cashLedger(accountId: number, from: string, to: string) {
-  const opening = sqlite
-    .prepare(
-      `SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
-        WHERE l.account_id = ? AND e.date < ?`,
-    )
-    .get(accountId, from) as { v: number };
-  const rows = sqlite
-    .prepare(
-      `SELECT e.id, e.date, e.reference, e.description, l.debit, l.credit
+export async function cashLedger(accountId: number, from: string, to: string) {
+  const opening = (await queryOne(`SELECT COALESCE(SUM(l.debit - l.credit), 0) AS v FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
+        WHERE l.account_id = ? AND e.date < ?`, [accountId, from])) as { v: number };
+  const rows = (await query(`SELECT e.id, e.date, e.reference, e.description, l.debit, l.credit
          FROM journal_lines l JOIN journal_entries e ON e.id = l.entry_id
         WHERE l.account_id = ? AND e.date BETWEEN ? AND ?
-        ORDER BY e.date, e.id`,
-    )
-    .all(accountId, from, to) as { id: number; date: string; reference: string; description: string; debit: number; credit: number }[];
+        ORDER BY e.date, e.id`, [accountId, from, to])) as { id: number; date: string; reference: string; description: string; debit: number; credit: number }[];
   let running = opening.v;
   return {
     opening: opening.v,
@@ -194,42 +170,26 @@ export function cashLedger(accountId: number, from: string, to: string) {
 // Dashboard
 // ---------------------------------------------------------------------------
 
-export function dashboardSummary(today: string) {
+export async function dashboardSummary(today: string) {
   const month = today.slice(0, 7);
-  const salesToday = sqlite
-    .prepare(`SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS count FROM sales WHERE date = ?`)
-    .get(today) as { total: number; count: number };
-  const salesMonth = sqlite
-    .prepare(`SELECT COALESCE(SUM(total),0) AS total, COALESCE(SUM(cogs),0) AS cogs, COUNT(*) AS count FROM sales WHERE substr(date,1,7) = ?`)
-    .get(month) as { total: number; cogs: number; count: number };
-  const receivable = sqlite.prepare(`SELECT COALESCE(SUM(total - amount_paid),0) AS v FROM sales WHERE status <> 'paid'`).get() as { v: number };
-  const payable = sqlite.prepare(`SELECT COALESCE(SUM(total - amount_paid),0) AS v FROM goods_receipts WHERE status <> 'paid'`).get() as { v: number };
-  const inventory = sqlite.prepare(`SELECT COALESCE(SUM(stock_value),0) AS value, COUNT(*) AS count FROM products`).get() as {
+  const salesToday = (await queryOne(`SELECT COALESCE(SUM(total),0) AS total, COUNT(*) AS count FROM sales WHERE date = ?`, [today])) as { total: number; count: number };
+  const salesMonth = (await queryOne(`SELECT COALESCE(SUM(total),0) AS total, COALESCE(SUM(cogs),0) AS cogs, COUNT(*) AS count FROM sales WHERE substr(date,1,7) = ?`, [month])) as { total: number; cogs: number; count: number };
+  const receivable = (await queryOne(`SELECT COALESCE(SUM(total - amount_paid),0) AS v FROM sales WHERE status <> 'paid'`, [])) as { v: number };
+  const payable = (await queryOne(`SELECT COALESCE(SUM(total - amount_paid),0) AS v FROM goods_receipts WHERE status <> 'paid'`, [])) as { v: number };
+  const inventory = (await queryOne(`SELECT COALESCE(SUM(stock_value),0) AS value, COUNT(*) AS count FROM products`, [])) as {
     value: number;
     count: number;
   };
-  const lowStock = sqlite
-    .prepare(`SELECT id, sku, name, unit, stock, min_stock AS minStock FROM products WHERE is_active = 1 AND stock <= min_stock ORDER BY stock ASC LIMIT 6`)
-    .all() as { id: number; sku: string; name: string; unit: string; stock: number; minStock: number }[];
-  const lowStockCount = sqlite.prepare(`SELECT COUNT(*) AS c FROM products WHERE is_active = 1 AND stock <= min_stock`).get() as { c: number };
-  const topProducts = sqlite
-    .prepare(
-      `SELECT p.name, SUM(i.qty) AS qty, SUM(i.subtotal) AS revenue
+  const lowStock = (await query(`SELECT id, sku, name, unit, stock, min_stock AS minStock FROM products WHERE is_active = 1 AND stock <= min_stock ORDER BY stock ASC LIMIT 6`, [])) as { id: number; sku: string; name: string; unit: string; stock: number; minStock: number }[];
+  const lowStockCount = (await queryOne(`SELECT COUNT(*) AS c FROM products WHERE is_active = 1 AND stock <= min_stock`, [])) as { c: number };
+  const topProducts = (await query(`SELECT p.name, SUM(i.qty) AS qty, SUM(i.subtotal) AS revenue
          FROM sale_items i JOIN sales s ON s.id = i.sale_id JOIN products p ON p.id = i.product_id
-        WHERE substr(s.date,1,7) = ? GROUP BY p.id ORDER BY revenue DESC LIMIT 5`,
-    )
-    .all(month) as { name: string; qty: number; revenue: number }[];
-  const recentSales = sqlite
-    .prepare(
-      `SELECT s.id, s.number, s.date, s.total, s.status, s.payment_type AS paymentType, c.name AS customer
-         FROM sales s LEFT JOIN customers c ON c.id = s.customer_id ORDER BY s.id DESC LIMIT 6`,
-    )
-    .all() as { id: number; number: string; date: string; total: number; status: string; paymentType: string; customer: string | null }[];
+        WHERE substr(s.date,1,7) = ? GROUP BY p.id ORDER BY revenue DESC LIMIT 5`, [month])) as { name: string; qty: number; revenue: number }[];
+  const recentSales = (await query(`SELECT s.id, s.number, s.date, s.total, s.status, s.payment_type AS paymentType, c.name AS customer
+         FROM sales s LEFT JOIN customers c ON c.id = s.customer_id ORDER BY s.id DESC LIMIT 6`, [])) as { id: number; number: string; date: string; total: number; status: string; paymentType: string; customer: string | null }[];
   return { salesToday, salesMonth, receivable: receivable.v, payable: payable.v, inventory, lowStock, lowStockCount: lowStockCount.c, topProducts, recentSales };
 }
 
-export function dailySales(from: string, to: string) {
-  return sqlite
-    .prepare(`SELECT date, SUM(total) AS total, SUM(cogs) AS cogs FROM sales WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date`)
-    .all(from, to) as { date: string; total: number; cogs: number }[];
+export async function dailySales(from: string, to: string) {
+  return (await query(`SELECT date, SUM(total) AS total, SUM(cogs) AS cogs FROM sales WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date`, [from, to])) as { date: string; total: number; cogs: number }[];
 }

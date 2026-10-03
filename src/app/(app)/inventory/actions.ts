@@ -13,7 +13,7 @@ export async function submitStockOpname(_: ActionState, formData: FormData): Pro
   const physical = formData.get("physicalQty");
   if (physical === null || physical === "") return { error: "Isi jumlah stok fisik." };
   try {
-    const { number } = createStockAdjustment({
+    const { number } = await createStockAdjustment({
       date: String(formData.get("date")),
       productId,
       physicalQty: Number(physical),

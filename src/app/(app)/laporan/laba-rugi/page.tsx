@@ -10,7 +10,7 @@ export default async function IncomeStatementPage({ searchParams }: { searchPara
   const sp = await searchParams;
   const from = sp.from || startOfMonth();
   const to = sp.to || today();
-  const is = incomeStatement(from, to);
+  const is = await incomeStatement(from, to);
   const pct = (v: number) => (is.revenue.total ? `${((v / is.revenue.total) * 100).toFixed(1)}%` : "-");
   const fmt = (d: string) => formatDate(d, { day: "numeric", month: "long", year: "numeric" });
 

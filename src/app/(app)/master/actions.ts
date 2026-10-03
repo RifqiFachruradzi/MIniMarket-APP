@@ -25,8 +25,8 @@ async function saveParty(kind: "supplier" | "customer", formData: FormData): Pro
   const values = { name: data.name, phone: data.phone || null, address: data.address || null };
   const table = kind === "supplier" ? suppliers : customers;
   try {
-    if (id) db.update(table).set(values).where(eq(table.id, id)).run();
-    else db.insert(table).values(values).run();
+    if (id) await db.update(table).set(values).where(eq(table.id, id)).run();
+    else await db.insert(table).values(values).run();
   } catch (err) {
     return toActionError(err);
   }
@@ -62,9 +62,9 @@ export async function saveAccount(_: ActionState, formData: FormData): Promise<A
   if (!parsed.success) return { error: parsed.error.issues[0].message };
   const { isCash, ...data } = parsed.data;
   try {
-    if (db.select().from(accounts).where(eq(accounts.code, data.code)).get()) throw new AppError(`Kode akun ${data.code} sudah dipakai.`);
+    if (await db.select().from(accounts).where(eq(accounts.code, data.code)).get()) throw new AppError(`Kode akun ${data.code} sudah dipakai.`);
     if (isCash === "on" && data.type !== "asset") throw new AppError("Akun kas/bank harus bertipe Aset.");
-    db.insert(accounts)
+    await db.insert(accounts)
       .values({ ...data, isCash: isCash === "on" })
       .run();
   } catch (err) {

@@ -16,7 +16,7 @@ export async function submitGoodsReceipt(_: ActionState, formData: FormData): Pr
 
   let id: number;
   try {
-    const result = createGoodsReceipt({
+    const result = await createGoodsReceipt({
       date: String(formData.get("date")),
       supplierId,
       supplierInvoice: String(formData.get("supplierInvoice") ?? ""),

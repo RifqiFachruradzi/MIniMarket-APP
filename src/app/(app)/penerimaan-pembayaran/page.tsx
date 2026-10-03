@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Clock, HandCoins, Users } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { SettlementForm } from "@/components/settlement-form";
 import { Card, EmptyState, PageHeader, PaymentStatusBadge, StatCard } from "@/components/ui";
 import { formatDate, rupiah, today } from "@/lib/format";
@@ -11,20 +11,15 @@ export const metadata = { title: "Penerimaan Pembayaran" };
 
 export default async function CustomerPaymentsPage({ searchParams }: { searchParams: Promise<{ sale?: string }> }) {
   const { sale } = await searchParams;
-  const open = sqlite
-    .prepare(
+  const open = (await query(
       `SELECT s.id, s.number, s.date, s.total, s.amount_paid AS amountPaid, s.status, c.name AS customer,
               CAST(julianday(?) - julianday(s.date) AS INTEGER) AS age
          FROM sales s JOIN customers c ON c.id = s.customer_id WHERE s.status <> 'paid' ORDER BY s.date`,
-    )
-    .all(today()) as { id: number; number: string; date: string; total: number; amountPaid: number; status: string; customer: string; age: number }[];
-  const history = sqlite
-    .prepare(
-      `SELECT p.id, p.number, p.date, p.amount, p.note, s.id AS saleId, s.number AS saleNumber, c.name AS customer, a.name AS account
+    [today()],
+  )) as { id: number; number: string; date: string; total: number; amountPaid: number; status: string; customer: string; age: number }[];
+  const history = (await query(`SELECT p.id, p.number, p.date, p.amount, p.note, s.id AS saleId, s.number AS saleNumber, c.name AS customer, a.name AS account
          FROM customer_payments p JOIN sales s ON s.id = p.sale_id LEFT JOIN customers c ON c.id = p.customer_id JOIN accounts a ON a.id = p.cash_account_id
-        ORDER BY p.date DESC, p.id DESC LIMIT 15`,
-    )
-    .all() as { id: number; number: string; date: string; amount: number; note: string | null; saleId: number; saleNumber: string; customer: string | null; account: string }[];
+        ORDER BY p.date DESC, p.id DESC LIMIT 15`, [])) as { id: number; number: string; date: string; amount: number; note: string | null; saleId: number; saleNumber: string; customer: string | null; account: string }[];
   const totalOutstanding = open.reduce((s, r) => s + r.total - r.amountPaid, 0);
   const overdue = open.filter((r) => r.age > 30).reduce((s, r) => s + r.total - r.amountPaid, 0);
   const customerCount = new Set(open.map((r) => r.customer)).size;
@@ -42,7 +37,7 @@ export default async function CustomerPaymentsPage({ searchParams }: { searchPar
           <SettlementForm
             action={submitCustomerPayment}
             documents={open.map((r) => ({ id: r.id, label: r.number, party: r.customer, outstanding: r.total - r.amountPaid }))}
-            cashAccounts={cashAccountOptions()}
+            cashAccounts={await cashAccountOptions()}
             defaultDocId={sale ? Number(sale) : undefined}
             today={today()}
             docLabel="Faktur Penjualan"

@@ -12,7 +12,7 @@ export async function submitSupplierPayment(_: ActionState, formData: FormData):
   const cashAccountId = optionalId(formData.get("cashAccountId"));
   if (!receiptId || !cashAccountId) return { error: "Pilih dokumen penerimaan dan akun pembayaran." };
   try {
-    const { number } = paySupplier({
+    const { number } = await paySupplier({
       date: String(formData.get("date")),
       receiptId,
       cashAccountId,

@@ -1,7 +1,7 @@
 import clsx from "clsx";
 import Link from "next/link";
 import { ArrowDownToLine, ArrowUpFromLine, Boxes, ClipboardCheck, Layers } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { PrintButton } from "@/components/print-button";
 import { Badge, Card, EmptyState, PageHeader, StatCard } from "@/components/ui";
 import { MOVEMENT_LABEL } from "@/lib/labels";
@@ -25,10 +25,8 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   const from = sp.from || startOfMonth();
   const to = sp.to || today();
 
-  const movement = sqlite
-    .prepare(`SELECT COALESCE(SUM(qty_in),0) AS qtyIn, COALESCE(SUM(qty_out),0) AS qtyOut, COALESCE(SUM(qty_in*unit_cost),0) AS valIn, COALESCE(SUM(qty_out*unit_cost),0) AS valOut FROM stock_movements WHERE date BETWEEN ? AND ?`)
-    .get(from, to) as { qtyIn: number; qtyOut: number; valIn: number; valOut: number };
-  const totals = sqlite.prepare(`SELECT COALESCE(SUM(stock),0) AS units, COALESCE(SUM(stock_value),0) AS value, COUNT(*) AS count FROM products`).get() as {
+  const movement = (await queryOne(`SELECT COALESCE(SUM(qty_in),0) AS qtyIn, COALESCE(SUM(qty_out),0) AS qtyOut, COALESCE(SUM(qty_in*unit_cost),0) AS valIn, COALESCE(SUM(qty_out*unit_cost),0) AS valOut FROM stock_movements WHERE date BETWEEN ? AND ?`, [from, to])) as { qtyIn: number; qtyOut: number; valIn: number; valOut: number };
+  const totals = (await queryOne(`SELECT COALESCE(SUM(stock),0) AS units, COALESCE(SUM(stock_value),0) AS value, COUNT(*) AS count FROM products`, [])) as {
     units: number;
     value: number;
     count: number;
@@ -72,13 +70,9 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
   );
 }
 
-function Valuation() {
-  const rows = sqlite
-    .prepare(
-      `SELECT category, COUNT(*) AS products, SUM(stock) AS units, SUM(stock_value) AS value,
-              SUM(stock * sell_price) AS retail FROM products GROUP BY category ORDER BY value DESC`,
-    )
-    .all() as { category: string; products: number; units: number; value: number; retail: number }[];
+async function Valuation() {
+  const rows = (await query(`SELECT category, COUNT(*) AS products, SUM(stock) AS units, SUM(stock_value) AS value,
+              SUM(stock * sell_price) AS retail FROM products GROUP BY category ORDER BY value DESC`, [])) as { category: string; products: number; units: number; value: number; retail: number }[];
   const total = rows.reduce((s, r) => s + r.value, 0);
   const retail = rows.reduce((s, r) => s + r.retail, 0);
   return (
@@ -131,16 +125,12 @@ function Valuation() {
   );
 }
 
-function StockCard({ productId, from, to }: { productId?: number; from: string; to: string }) {
-  const products = activeProducts();
+async function StockCard({ productId, from, to }: { productId?: number; from: string; to: string }) {
+  const products = await activeProducts();
   const product = products.find((p) => p.id === productId) ?? products[0];
   if (!product) return <EmptyState title="Belum ada produk" />;
-  const opening = sqlite
-    .prepare(`SELECT COALESCE(SUM(qty_in - qty_out),0) AS v FROM stock_movements WHERE product_id = ? AND date < ?`)
-    .get(product.id, from) as { v: number };
-  const rows = sqlite
-    .prepare(`SELECT * FROM stock_movements WHERE product_id = ? AND date BETWEEN ? AND ? ORDER BY date, id`)
-    .all(product.id, from, to) as { id: number; date: string; type: string; reference: string; qty_in: number; qty_out: number; unit_cost: number; note: string | null }[];
+  const opening = (await queryOne(`SELECT COALESCE(SUM(qty_in - qty_out),0) AS v FROM stock_movements WHERE product_id = ? AND date < ?`, [product.id, from])) as { v: number };
+  const rows = (await query(`SELECT * FROM stock_movements WHERE product_id = ? AND date BETWEEN ? AND ? ORDER BY date, id`, [product.id, from, to])) as { id: number; date: string; type: string; reference: string; qty_in: number; qty_out: number; unit_cost: number; note: string | null }[];
   let running = opening.v;
   const tone: Record<string, "green" | "blue" | "red" | "amber" | "gray"> = { opening: "gray", receipt: "green", sale: "blue", issue: "red", adjustment: "amber" };
 
@@ -227,13 +217,9 @@ function StockCard({ productId, from, to }: { productId?: number; from: string; 
   );
 }
 
-function Opname() {
-  const products = activeProducts().map(({ id, sku, name, unit, stock, avgCost }) => ({ id, sku, name, unit, stock, avgCost }));
-  const history = sqlite
-    .prepare(
-      `SELECT a.*, p.name, p.sku, p.unit FROM stock_adjustments a JOIN products p ON p.id = a.product_id ORDER BY a.date DESC, a.id DESC LIMIT 20`,
-    )
-    .all() as { id: number; number: string; date: string; name: string; sku: string; unit: string; system_qty: number; physical_qty: number; difference: number; value: number; note: string | null }[];
+async function Opname() {
+  const products = (await activeProducts()).map(({ id, sku, name, unit, stock, avgCost }) => ({ id, sku, name, unit, stock, avgCost }));
+  const history = (await query(`SELECT a.*, p.name, p.sku, p.unit FROM stock_adjustments a JOIN products p ON p.id = a.product_id ORDER BY a.date DESC, a.id DESC LIMIT 20`, [])) as { id: number; number: string; date: string; name: string; sku: string; unit: string; system_qty: number; physical_qty: number; difference: number; value: number; note: string | null }[];
   return (
     <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
       <Card title="Input Stock Opname" description="Sesuaikan stok sistem dengan hasil hitung fisik." className="h-fit">

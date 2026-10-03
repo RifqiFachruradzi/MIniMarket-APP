@@ -12,7 +12,7 @@ export async function submitGoodsIssue(_: ActionState, formData: FormData): Prom
   const parsed = parseItems(formData.get("items"));
   if ("error" in parsed) return { error: parsed.error };
   try {
-    createGoodsIssue({
+    await createGoodsIssue({
       date: String(formData.get("date")),
       reason: String(formData.get("reason") ?? ""),
       note: String(formData.get("note") ?? ""),

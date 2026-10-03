@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, CircleCheck, Wallet } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { PrintButton } from "@/components/print-button";
 import { Card, LinkButton, PageHeader, PaymentStatusBadge } from "@/components/ui";
 import { formatDate, number, rupiah } from "@/lib/format";
@@ -11,18 +11,14 @@ export const metadata = { title: "Detail Penerimaan Barang" };
 export default async function ReceiptDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ new?: string }> }) {
   const { id } = await params;
   const { new: isNew } = await searchParams;
-  const r = sqlite
-    .prepare(`SELECT r.*, s.name AS supplier, s.phone, s.address FROM goods_receipts r JOIN suppliers s ON s.id = r.supplier_id WHERE r.id = ?`)
-    .get(Number(id)) as
+  const r = (await queryOne(`SELECT r.*, s.name AS supplier, s.phone, s.address FROM goods_receipts r JOIN suppliers s ON s.id = r.supplier_id WHERE r.id = ?`, [
+    Number(id),
+  ])) as
     | { id: number; number: string; date: string; due_date: string | null; supplier_invoice: string | null; total: number; amount_paid: number; status: string; note: string | null; supplier: string; phone: string | null; address: string | null }
     | undefined;
   if (!r) notFound();
-  const items = sqlite
-    .prepare(`SELECT i.*, p.name, p.sku, p.unit FROM goods_receipt_items i JOIN products p ON p.id = i.product_id WHERE i.receipt_id = ? ORDER BY i.id`)
-    .all(r.id) as { id: number; name: string; sku: string; unit: string; qty: number; unit_cost: number; subtotal: number }[];
-  const payments = sqlite
-    .prepare(`SELECT p.*, a.name AS account FROM supplier_payments p JOIN accounts a ON a.id = p.cash_account_id WHERE p.receipt_id = ? ORDER BY p.id`)
-    .all(r.id) as { id: number; number: string; date: string; amount: number; account: string }[];
+  const items = (await query(`SELECT i.*, p.name, p.sku, p.unit FROM goods_receipt_items i JOIN products p ON p.id = i.product_id WHERE i.receipt_id = ? ORDER BY i.id`, [r.id])) as { id: number; name: string; sku: string; unit: string; qty: number; unit_cost: number; subtotal: number }[];
+  const payments = (await query(`SELECT p.*, a.name AS account FROM supplier_payments p JOIN accounts a ON a.id = p.cash_account_id WHERE p.receipt_id = ? ORDER BY p.id`, [r.id])) as { id: number; number: string; date: string; amount: number; account: string }[];
   const outstanding = r.total - r.amount_paid;
 
   return (

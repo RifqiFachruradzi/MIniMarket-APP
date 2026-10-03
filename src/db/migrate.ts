@@ -1,5 +1,12 @@
-import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { db } from "./index";
+import { migrate } from "drizzle-orm/libsql/migrator";
+import { databaseUrl, db } from "./index";
 
-migrate(db, { migrationsFolder: "./drizzle" });
-console.log("Migrasi database selesai.");
+async function main() {
+  await migrate(db, { migrationsFolder: "./drizzle" });
+  console.log(`Migrasi database selesai (${databaseUrl.replace(/\?.*$/, "")}).`);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

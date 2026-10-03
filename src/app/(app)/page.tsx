@@ -11,12 +11,12 @@ export const metadata = { title: "Dashboard" };
 export default async function DashboardPage() {
   const session = await getSession();
   const now = today();
-  const s = dashboardSummary(now);
-  const cash = cashBalances();
+  const s = await dashboardSummary(now);
+  const cash = await cashBalances();
   const totalCash = cash.reduce((a, c) => a + c.balance, 0);
 
   const from = addDays(now, -29);
-  const rows = dailySales(from, now);
+  const rows = await dailySales(from, now);
   const series = Array.from({ length: 30 }, (_, i) => {
     const date = addDays(from, i);
     const r = rows.find((x) => x.date === date);

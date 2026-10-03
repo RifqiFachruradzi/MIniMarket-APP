@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { PackagePlus, Plus, Search } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { PAGE_SIZE, Pagination, pageParam } from "@/components/pagination";
 import { Card, EmptyState, LinkButton, PageHeader, PaymentStatusBadge } from "@/components/ui";
 import { formatDate, rupiah, startOfMonth, today } from "@/lib/format";
@@ -25,17 +25,11 @@ export default async function ReceiptsPage({ searchParams }: { searchParams: Pro
     params.status = sp.status;
   }
   const w = where.join(" AND ");
-  const summary = sqlite
-    .prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(r.total),0) AS total, COALESCE(SUM(r.total - r.amount_paid),0) AS outstanding FROM goods_receipts r JOIN suppliers s ON s.id = r.supplier_id WHERE ${w}`)
-    .get(params) as { count: number; total: number; outstanding: number };
-  const rows = sqlite
-    .prepare(
-      `SELECT r.id, r.number, r.date, r.due_date AS dueDate, r.supplier_invoice AS supplierInvoice, r.total, r.amount_paid AS amountPaid, r.status, s.name AS supplier,
+  const summary = (await queryOne(`SELECT COUNT(*) AS count, COALESCE(SUM(r.total),0) AS total, COALESCE(SUM(r.total - r.amount_paid),0) AS outstanding FROM goods_receipts r JOIN suppliers s ON s.id = r.supplier_id WHERE ${w}`, params)) as { count: number; total: number; outstanding: number };
+  const rows = (await query(`SELECT r.id, r.number, r.date, r.due_date AS dueDate, r.supplier_invoice AS supplierInvoice, r.total, r.amount_paid AS amountPaid, r.status, s.name AS supplier,
               (SELECT SUM(qty) FROM goods_receipt_items i WHERE i.receipt_id = r.id) AS qty
          FROM goods_receipts r JOIN suppliers s ON s.id = r.supplier_id
-        WHERE ${w} ORDER BY r.date DESC, r.id DESC LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`,
-    )
-    .all(params) as { id: number; number: string; date: string; dueDate: string | null; supplierInvoice: string | null; total: number; amountPaid: number; status: string; supplier: string; qty: number }[];
+        WHERE ${w} ORDER BY r.date DESC, r.id DESC LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`, params)) as { id: number; number: string; date: string; dueDate: string | null; supplierInvoice: string | null; total: number; amountPaid: number; status: string; supplier: string; qty: number }[];
 
   return (
     <>

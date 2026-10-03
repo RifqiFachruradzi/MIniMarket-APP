@@ -1,5 +1,5 @@
 import { Lock } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { ActionForm, SubmitButton } from "@/components/form";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { ACCOUNT_TYPE_LABEL, CASHFLOW_LABEL } from "@/lib/accounts";
@@ -10,14 +10,10 @@ export const metadata = { title: "Bagan Akun" };
 
 const GROUP_LABEL: Record<string, string> = { current: "Lancar", fixed: "Tetap / Jangka Panjang", cogs: "HPP", operating: "Operasional", other: "Lain-lain" };
 
-export default function AccountsPage() {
-  const rows = sqlite
-    .prepare(
-      `SELECT a.id, a.code, a.name, a.type, a.report_group AS "group", a.cashflow, a.is_cash AS isCash, a.is_system AS isSystem,
+export default async function AccountsPage() {
+  const rows = (await query(`SELECT a.id, a.code, a.name, a.type, a.report_group AS "group", a.cashflow, a.is_cash AS isCash, a.is_system AS isSystem,
               COALESCE(SUM(l.debit),0) AS debit, COALESCE(SUM(l.credit),0) AS credit
-         FROM accounts a LEFT JOIN journal_lines l ON l.account_id = a.id GROUP BY a.id ORDER BY a.code`,
-    )
-    .all() as { id: number; code: string; name: string; type: string; group: string | null; cashflow: string; isCash: number; isSystem: number; debit: number; credit: number }[];
+         FROM accounts a LEFT JOIN journal_lines l ON l.account_id = a.id GROUP BY a.id ORDER BY a.code`, [])) as { id: number; code: string; name: string; type: string; group: string | null; cashflow: string; isCash: number; isSystem: number; debit: number; credit: number }[];
   const types = ["asset", "liability", "equity", "revenue", "expense"];
 
   return (

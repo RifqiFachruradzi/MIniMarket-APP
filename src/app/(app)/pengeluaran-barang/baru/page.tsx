@@ -6,8 +6,8 @@ import { IssueForm } from "./issue-form";
 
 export const metadata = { title: "Pengeluaran Barang Baru" };
 
-export default function NewIssuePage() {
-  const products = activeProducts().map(({ id, sku, barcode, name, unit, stock, avgCost, sellPrice }) => ({ id, sku, barcode, name, unit, stock, avgCost, sellPrice }));
+export default async function NewIssuePage() {
+  const products = (await activeProducts()).map(({ id, sku, barcode, name, unit, stock, avgCost, sellPrice }) => ({ id, sku, barcode, name, unit, stock, avgCost, sellPrice }));
   return (
     <>
       <PageHeader title="Pengeluaran Barang" description="Catat barang keluar selain penjualan: rusak, kedaluwarsa, hilang, pemakaian internal, atau retur." />

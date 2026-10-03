@@ -1,5 +1,5 @@
 import { Search } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { PAGE_SIZE, Pagination, pageParam } from "@/components/pagination";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 import { accounting, formatDate, startOfMonth, today } from "@/lib/format";
@@ -37,18 +37,12 @@ export default async function JournalPage({ searchParams }: { searchParams: Prom
     params.source = sp.source;
   }
   const w = where.join(" AND ");
-  const count = (sqlite.prepare(`SELECT COUNT(*) AS c FROM journal_entries e WHERE ${w}`).get(params) as { c: number }).c;
-  const entries = sqlite
-    .prepare(`SELECT e.* FROM journal_entries e WHERE ${w} ORDER BY e.date DESC, e.id DESC LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`)
-    .all(params) as { id: number; date: string; reference: string; description: string; source: string }[];
+  const count = ((await queryOne(`SELECT COUNT(*) AS c FROM journal_entries e WHERE ${w}`, params)) as { c: number }).c;
+  const entries = (await query(`SELECT e.* FROM journal_entries e WHERE ${w} ORDER BY e.date DESC, e.id DESC LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`, params)) as { id: number; date: string; reference: string; description: string; source: string }[];
   const ids = entries.map((e) => e.id);
   const lines = ids.length
-    ? (sqlite
-        .prepare(
-          `SELECT l.entry_id AS entryId, l.debit, l.credit, a.code, a.name FROM journal_lines l JOIN accounts a ON a.id = l.account_id
-            WHERE l.entry_id IN (${ids.map(() => "?").join(",")}) ORDER BY l.entry_id, l.credit > 0, l.id`,
-        )
-        .all(...ids) as { entryId: number; debit: number; credit: number; code: string; name: string }[])
+    ? ((await query(`SELECT l.entry_id AS entryId, l.debit, l.credit, a.code, a.name FROM journal_lines l JOIN accounts a ON a.id = l.account_id
+            WHERE l.entry_id IN (${ids.map(() => "?").join(",")}) ORDER BY l.entry_id, l.credit > 0, l.id`, ids)) as { entryId: number; debit: number; credit: number; code: string; name: string }[])
     : [];
 
   return (

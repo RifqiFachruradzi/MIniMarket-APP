@@ -1,5 +1,5 @@
 import { CircleCheck, PackageMinus, Plus } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { PAGE_SIZE, Pagination, pageParam } from "@/components/pagination";
 import { Badge, Card, EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { formatDate, rupiah, startOfYear, today } from "@/lib/format";
@@ -11,16 +11,10 @@ export default async function IssuesPage({ searchParams }: { searchParams: Promi
   const from = sp.from || startOfYear();
   const to = sp.to || today();
   const page = pageParam(sp.page);
-  const summary = sqlite
-    .prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(total_cost),0) AS total FROM goods_issues WHERE date BETWEEN ? AND ?`)
-    .get(from, to) as { count: number; total: number };
-  const rows = sqlite
-    .prepare(
-      `SELECT g.id, g.number, g.date, g.reason, g.total_cost AS totalCost, g.note,
+  const summary = (await queryOne(`SELECT COUNT(*) AS count, COALESCE(SUM(total_cost),0) AS total FROM goods_issues WHERE date BETWEEN ? AND ?`, [from, to])) as { count: number; total: number };
+  const rows = (await query(`SELECT g.id, g.number, g.date, g.reason, g.total_cost AS totalCost, g.note,
               (SELECT GROUP_CONCAT(p.name || ' × ' || i.qty, ', ') FROM goods_issue_items i JOIN products p ON p.id = i.product_id WHERE i.issue_id = g.id) AS items
-         FROM goods_issues g WHERE g.date BETWEEN ? AND ? ORDER BY g.date DESC, g.id DESC LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`,
-    )
-    .all(from, to) as { id: number; number: string; date: string; reason: string; totalCost: number; note: string | null; items: string }[];
+         FROM goods_issues g WHERE g.date BETWEEN ? AND ? ORDER BY g.date DESC, g.id DESC LIMIT ${PAGE_SIZE} OFFSET ${(page - 1) * PAGE_SIZE}`, [from, to])) as { id: number; number: string; date: string; reason: string; totalCost: number; note: string | null; items: string }[];
   const tone = (r: string) => (r === "Rusak" || r === "Hilang" ? "red" : r === "Kedaluwarsa" ? "amber" : "gray") as "red" | "amber" | "gray";
 
   return (

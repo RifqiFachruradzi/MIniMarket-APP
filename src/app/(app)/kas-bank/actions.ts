@@ -14,7 +14,7 @@ export async function submitCashTransaction(_: ActionState, formData: FormData):
   const counterAccountId = optionalId(formData.get("counterAccountId"));
   if (!cashAccountId || !counterAccountId) return { error: "Lengkapi akun kas dan akun lawan." };
   try {
-    const { number } = createCashTransaction({
+    const { number } = await createCashTransaction({
       date: String(formData.get("date")),
       type,
       cashAccountId,

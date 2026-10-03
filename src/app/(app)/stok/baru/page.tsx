@@ -4,12 +4,12 @@ import { ProductForm } from "../product-form";
 
 export const metadata = { title: "Tambah Produk" };
 
-export default function NewProductPage() {
+export default async function NewProductPage() {
   return (
     <div className="max-w-3xl">
       <PageHeader title="Tambah Produk" description="Daftarkan produk baru ke katalog toko." />
       <Card>
-        <ProductForm categories={productCategories()} />
+        <ProductForm categories={await productCategories()} />
       </Card>
     </div>
   );

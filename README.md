@@ -11,7 +11,7 @@ Aplikasi manajemen minimarket berbasis web: kasir/penjualan, stok & inventory, k
 | Framework | [Next.js 15](https://nextjs.org) (App Router, Server Components, Server Actions) + React 19 |
 | Bahasa | TypeScript (strict) |
 | UI | Tailwind CSS v4, ikon [Lucide](https://lucide.dev) (tanpa emoji), favicon SVG |
-| Database | SQLite (better-sqlite3) + [Drizzle ORM](https://orm.drizzle.team) & migrasi drizzle-kit |
+| Database | SQLite / [Turso](https://turso.tech) (libSQL) + [Drizzle ORM](https://orm.drizzle.team) & migrasi drizzle-kit |
 | Autentikasi | Session JWT (jose) di cookie httpOnly, password di-hash dengan bcrypt, proteksi rute via middleware |
 | Validasi | Zod |
 
@@ -36,7 +36,7 @@ Aplikasi manajemen minimarket berbasis web: kasir/penjualan, stok & inventory, k
 
 ## Menjalankan
 
-Prasyarat: **Node.js 20+**.
+Prasyarat: **Node.js 20+**. Tanpa konfigurasi apa pun, data disimpan di file SQLite lokal `data/minimarket.db`.
 
 ```bash
 npm install
@@ -52,14 +52,54 @@ Akun demo:
 | Admin | `admin@minimarket.id` | `admin123` |
 | Kasir | `kasir@minimarket.id` | `kasir123` |
 
-Untuk production:
+Ingin mulai dari database kosong berisi data contoh lagi? Hapus `data/minimarket.db*` lalu jalankan `npm run setup` kembali.
+
+## Deploy ke Vercel
+
+Vercel tidak bisa menyimpan file SQLite (filesystem serverless bersifat read-only & sementara), jadi di production aplikasi memakai **Turso**, yaitu SQLite yang di-hosting (ada paket gratis). Kode yang sama otomatis memakai file lokal saat development dan Turso saat `DATABASE_URL` diisi URL `libsql://`.
+
+### 1. Buat database Turso
+
+Pilih salah satu:
+
+- **Lewat Vercel (paling mudah):** Vercel Dashboard → **Storage** → **Create Database** → pilih **Turso** → hubungkan ke project. Vercel otomatis menambahkan env var `TURSO_DATABASE_URL` dan `TURSO_AUTH_TOKEN`; aplikasi langsung membacanya, jadi di langkah 3 Anda cukup menambahkan `AUTH_SECRET`.
+- **Lewat turso.tech:** daftar → buat database (region terdekat, mis. Singapore) → salin **Database URL** (`libsql://...`) dan buat **Token**.
+
+### 2. Import repository ke Vercel
+
+1. Buka [vercel.com/new](https://vercel.com/new) → **Import Git Repository** → pilih `MIniMarket-APP`.
+2. Framework terdeteksi otomatis sebagai **Next.js**. Build command tidak perlu diubah: script `vercel-build` otomatis menjalankan migrasi database lalu `next build`.
+
+### 3. Isi Environment Variables (Settings → Environment Variables)
+
+| Nama | Nilai |
+| --- | --- |
+| `DATABASE_URL` | `libsql://nama-database-anda.turso.io` (tidak perlu bila memakai integrasi Vercel × Turso) |
+| `DATABASE_AUTH_TOKEN` | token dari Turso (idem) |
+| `AUTH_SECRET` | string acak min. 32 karakter, buat dengan `openssl rand -base64 32` |
+
+Lalu klik **Deploy** (atau **Redeploy** bila env var ditambahkan setelah deploy pertama).
+
+### 4. Isi data awal (sekali saja, dari komputer Anda)
+
+```bash
+# Pilihan A: unggah data demo 60 hari (dibuat lokal lalu disalin ke Turso secara batch)
+npm run setup
+DATABASE_URL="libsql://..." DATABASE_AUTH_TOKEN="..." npm run db:push
+
+# Pilihan B: database bersih untuk dipakai sungguhan (hanya akun admin/kasir & bagan akun)
+DATABASE_URL="libsql://..." DATABASE_AUTH_TOKEN="..." npm run db:migrate
+DATABASE_URL="libsql://..." DATABASE_AUTH_TOKEN="..." npm run db:seed -- --minimal
+```
+
+Setelah itu buka URL Vercel Anda dan login. **Segera ganti password akun demo** bila aplikasi dipakai sungguhan.
+
+## Production di server sendiri
 
 ```bash
 npm run build
 npm start
 ```
-
-Ingin mulai dari database kosong berisi data contoh lagi? Hapus `data/minimarket.db*` lalu jalankan `npm run setup` kembali.
 
 ## Alur Akuntansi
 
@@ -93,7 +133,7 @@ src/
 │       ├── laporan/{neraca,laba-rugi,arus-kas,jurnal}/
 │       └── master/{pemasok,pelanggan,akun}/
 ├── components/                 # UI: kartu, tabel, form, editor item, grafik, laporan
-├── db/                         # skema Drizzle, koneksi, migrasi, seed
+├── db/                         # skema Drizzle, koneksi, migrasi, seed, push ke Turso
 ├── lib/                        # sesi, format Rupiah/tanggal, kode akun
 ├── server/                     # logika bisnis: transaksi, inventory, buku besar, laporan
 └── middleware.ts               # proteksi rute

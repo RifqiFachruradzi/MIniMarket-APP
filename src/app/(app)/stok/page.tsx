@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { AlertTriangle, Boxes, Package, PackageX, Pencil, Plus, Search } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { Badge, Card, EmptyState, LinkButton, PageHeader, StatCard } from "@/components/ui";
 import { number, rupiah } from "@/lib/format";
 import { productCategories } from "@/server/queries";
@@ -37,22 +37,17 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
   if (status === "out") where.push("stock = 0");
   if (status === "inactive") where.push("is_active = 0");
 
-  const rows = sqlite
-    .prepare(
+  const rows = (await query(
       `SELECT id, sku, name, category, unit, stock, min_stock AS minStock, avg_cost AS avgCost, sell_price AS sellPrice,
               stock_value AS stockValue, is_active AS isActive
          FROM products ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY name`,
-    )
-    .all(params) as Row[];
-  const totals = sqlite
-    .prepare(
-      `SELECT COUNT(*) AS products, COALESCE(SUM(stock),0) AS units, COALESCE(SUM(stock_value),0) AS value,
+    params,
+  )) as Row[];
+  const totals = (await queryOne(`SELECT COUNT(*) AS products, COALESCE(SUM(stock),0) AS units, COALESCE(SUM(stock_value),0) AS value,
               SUM(CASE WHEN stock <= min_stock AND stock > 0 THEN 1 ELSE 0 END) AS low,
               SUM(CASE WHEN stock = 0 THEN 1 ELSE 0 END) AS out
-         FROM products WHERE is_active = 1`,
-    )
-    .get() as { products: number; units: number; value: number; low: number; out: number };
-  const categories = productCategories();
+         FROM products WHERE is_active = 1`, [])) as { products: number; units: number; value: number; low: number; out: number };
+  const categories = await productCategories();
 
   return (
     <>

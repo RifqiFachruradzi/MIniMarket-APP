@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { CalendarClock, Truck, Wallet } from "lucide-react";
-import { sqlite } from "@/db";
+import { query, queryOne } from "@/db";
 import { SettlementForm } from "@/components/settlement-form";
 import { Card, EmptyState, PageHeader, PaymentStatusBadge, StatCard } from "@/components/ui";
 import { formatDate, rupiah, today } from "@/lib/format";
@@ -12,19 +12,11 @@ export const metadata = { title: "Pembayaran Pemasok" };
 export default async function SupplierPaymentsPage({ searchParams }: { searchParams: Promise<{ receipt?: string }> }) {
   const { receipt } = await searchParams;
   const now = today();
-  const open = sqlite
-    .prepare(
-      `SELECT r.id, r.number, r.date, r.due_date AS dueDate, r.supplier_invoice AS supplierInvoice, r.total, r.amount_paid AS amountPaid, r.status, s.name AS supplier
-         FROM goods_receipts r JOIN suppliers s ON s.id = r.supplier_id WHERE r.status <> 'paid' ORDER BY COALESCE(r.due_date, r.date)`,
-    )
-    .all() as { id: number; number: string; date: string; dueDate: string | null; supplierInvoice: string | null; total: number; amountPaid: number; status: string; supplier: string }[];
-  const history = sqlite
-    .prepare(
-      `SELECT p.id, p.number, p.date, p.amount, r.id AS receiptId, r.number AS receiptNumber, s.name AS supplier, a.name AS account
+  const open = (await query(`SELECT r.id, r.number, r.date, r.due_date AS dueDate, r.supplier_invoice AS supplierInvoice, r.total, r.amount_paid AS amountPaid, r.status, s.name AS supplier
+         FROM goods_receipts r JOIN suppliers s ON s.id = r.supplier_id WHERE r.status <> 'paid' ORDER BY COALESCE(r.due_date, r.date)`, [])) as { id: number; number: string; date: string; dueDate: string | null; supplierInvoice: string | null; total: number; amountPaid: number; status: string; supplier: string }[];
+  const history = (await query(`SELECT p.id, p.number, p.date, p.amount, r.id AS receiptId, r.number AS receiptNumber, s.name AS supplier, a.name AS account
          FROM supplier_payments p JOIN goods_receipts r ON r.id = p.receipt_id JOIN suppliers s ON s.id = p.supplier_id JOIN accounts a ON a.id = p.cash_account_id
-        ORDER BY p.date DESC, p.id DESC LIMIT 15`,
-    )
-    .all() as { id: number; number: string; date: string; amount: number; receiptId: number; receiptNumber: string; supplier: string; account: string }[];
+        ORDER BY p.date DESC, p.id DESC LIMIT 15`, [])) as { id: number; number: string; date: string; amount: number; receiptId: number; receiptNumber: string; supplier: string; account: string }[];
   const total = open.reduce((s, r) => s + r.total - r.amountPaid, 0);
   const dueSoon = open.filter((r) => r.dueDate && r.dueDate <= now).reduce((s, r) => s + r.total - r.amountPaid, 0);
 
@@ -41,7 +33,7 @@ export default async function SupplierPaymentsPage({ searchParams }: { searchPar
           <SettlementForm
             action={submitSupplierPayment}
             documents={open.map((r) => ({ id: r.id, label: r.number, party: r.supplier, outstanding: r.total - r.amountPaid }))}
-            cashAccounts={cashAccountOptions()}
+            cashAccounts={await cashAccountOptions()}
             defaultDocId={receipt ? Number(receipt) : undefined}
             today={now}
             docLabel="Dokumen Penerimaan Barang"
