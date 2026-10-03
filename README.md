@@ -62,7 +62,7 @@ Vercel tidak bisa menyimpan file SQLite (filesystem serverless bersifat read-onl
 
 Pilih salah satu:
 
-- **Lewat Vercel (paling mudah):** Vercel Dashboard → **Storage** → **Create Database** → pilih **Turso** → hubungkan ke project. Vercel otomatis menambahkan env var `TURSO_DATABASE_URL` dan `TURSO_AUTH_TOKEN`; aplikasi langsung membacanya, jadi di langkah 3 Anda cukup menambahkan `AUTH_SECRET`.
+- **Lewat Vercel (paling mudah):** Vercel Dashboard → **Storage** → **Create Database** → pilih **Turso** → hubungkan ke project. Saat diminta **Custom Prefix**, isi `DATABASE` sehingga Vercel membuat `DATABASE_URL` dan token-nya; aplikasi langsung membacanya, jadi di langkah 3 Anda cukup menambahkan `AUTH_SECRET`.
 - **Lewat turso.tech:** daftar → buat database (region terdekat, mis. Singapore) → salin **Database URL** (`libsql://...`) dan buat **Token**.
 
 ### 2. Import repository ke Vercel

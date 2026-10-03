@@ -11,10 +11,12 @@ export type DB = LibSQLDatabase<typeof schema>;
  * DATABASE_URL:
  *  - lokal  : file:./data/minimarket.db (default)
  *  - online : libsql://<nama-db>.turso.io  (+ DATABASE_AUTH_TOKEN)
- * Variabel TURSO_DATABASE_URL / TURSO_AUTH_TOKEN (dari integrasi Vercel × Turso) juga diterima.
+ * Nama variabel dari integrasi Vercel × Turso (prefix DATABASE, TURSO, atau STORAGE) juga diterima.
  */
-export const databaseUrl = process.env.DATABASE_URL || process.env.TURSO_DATABASE_URL || "file:./data/minimarket.db";
-const authToken = process.env.DATABASE_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN;
+const env = process.env;
+export const databaseUrl = env.DATABASE_URL || env.TURSO_DATABASE_URL || env.STORAGE_URL || "file:./data/minimarket.db";
+const authToken =
+  env.DATABASE_AUTH_TOKEN || env.DATABASE_TOKEN || env.TURSO_AUTH_TOKEN || env.STORAGE_AUTH_TOKEN || env.STORAGE_TOKEN;
 
 const globalForDb = globalThis as unknown as { __minimarketClient?: Client; __minimarketDb?: DB };
 
