@@ -1,12 +1,25 @@
-import { migrate } from "drizzle-orm/libsql/migrator";
-import { databaseUrl, db } from "./index";
+const env = process.env;
+const url = env.DATABASE_URL || env.TURSO_DATABASE_URL || env.STORAGE_URL;
 
 async function main() {
+  if (env.VERCEL && !url) {
+    // Jangan gagalkan build: aplikasi akan menampilkan pesan jelas saat dijalankan tanpa database.
+    console.warn(
+      "[migrate] PERINGATAN: DATABASE_URL belum diset di Vercel — migrasi dilewati. " +
+        "Hubungkan database Turso (Storage) dengan prefix DATABASE, lalu Redeploy.",
+    );
+    return;
+  }
+  // Import dinamis agar pengecekan di atas berjalan sebelum koneksi dibuat
+  const { migrate } = await import("drizzle-orm/libsql/migrator");
+  const { databaseUrl, db } = await import("./index");
+  console.log(`[migrate] Menjalankan migrasi ke ${databaseUrl.replace(/^(libsql:\/\/[^/?]+).*$/, "$1")} ...`);
   await migrate(db, { migrationsFolder: "./drizzle" });
-  console.log(`Migrasi database selesai (${databaseUrl.replace(/\?.*$/, "")}).`);
+  console.log("[migrate] Migrasi database selesai.");
 }
 
 main().catch((err) => {
-  console.error(err);
+  const cause = err instanceof Error && err.cause instanceof Error ? ` (penyebab: ${err.cause.message})` : "";
+  console.error("[migrate] GAGAL:", err instanceof Error ? err.message.split("\n")[0] : err, cause);
   process.exit(1);
 });
