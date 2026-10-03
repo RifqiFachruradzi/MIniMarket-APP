@@ -1,8 +1,9 @@
-const env = process.env;
-const url = env.DATABASE_URL || env.TURSO_DATABASE_URL || env.STORAGE_URL;
+import { remoteDatabaseUrl } from "./env";
+
+const url = remoteDatabaseUrl();
 
 async function main() {
-  if (env.VERCEL && !url) {
+  if (process.env.VERCEL && !url) {
     // Jangan gagalkan build: aplikasi akan menampilkan pesan jelas saat dijalankan tanpa database.
     console.warn(
       "[migrate] PERINGATAN: DATABASE_URL belum diset di Vercel — migrasi dilewati. " +

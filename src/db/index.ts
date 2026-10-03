@@ -3,6 +3,7 @@ import { createClient, type Client, type InArgs } from "@libsql/client";
 import { drizzle, type LibSQLDatabase } from "drizzle-orm/libsql";
 import fs from "node:fs";
 import path from "node:path";
+import { databaseAuthToken, remoteDatabaseUrl } from "./env";
 import * as schema from "./schema";
 
 export type DB = LibSQLDatabase<typeof schema>;
@@ -13,10 +14,8 @@ export type DB = LibSQLDatabase<typeof schema>;
  *  - online : libsql://<nama-db>.turso.io  (+ DATABASE_AUTH_TOKEN)
  * Nama variabel dari integrasi Vercel × Turso (prefix DATABASE, TURSO, atau STORAGE) juga diterima.
  */
-const env = process.env;
-export const databaseUrl = env.DATABASE_URL || env.TURSO_DATABASE_URL || env.STORAGE_URL || "file:./data/minimarket.db";
-const authToken =
-  env.DATABASE_AUTH_TOKEN || env.DATABASE_TOKEN || env.TURSO_AUTH_TOKEN || env.STORAGE_AUTH_TOKEN || env.STORAGE_TOKEN;
+export const databaseUrl = remoteDatabaseUrl() || "file:./data/minimarket.db";
+const authToken = databaseAuthToken();
 
 const globalForDb = globalThis as unknown as { __minimarketClient?: Client; __minimarketDb?: DB };
 
