@@ -80,19 +80,24 @@ Pilih salah satu:
 
 Lalu klik **Deploy** (atau **Redeploy** bila env var ditambahkan setelah deploy pertama).
 
-### 4. Isi data awal (sekali saja, dari komputer Anda)
+### 4. Data awal terisi otomatis
 
-```bash
-# Pilihan A: unggah data demo 60 hari (dibuat lokal lalu disalin ke Turso secara batch)
-npm run setup
-DATABASE_URL="libsql://..." DATABASE_AUTH_TOKEN="..." npm run db:push
+Tidak perlu menjalankan apa pun di komputer. Saat build, script `vercel-build` menjalankan `src/db/bootstrap.ts`:
 
-# Pilihan B: database bersih untuk dipakai sungguhan (hanya akun admin/kasir & bagan akun)
-DATABASE_URL="libsql://..." DATABASE_AUTH_TOKEN="..." npm run db:migrate
-DATABASE_URL="libsql://..." DATABASE_AUTH_TOKEN="..." npm run db:seed -- --minimal
-```
+1. Menjalankan migrasi pada database Turso.
+2. **Bila database masih kosong**, membuat data awal lalu mengunggahnya ke Turso secara batch. Deploy berikutnya melihat database sudah berisi data sehingga **tidak menimpa** apa pun.
 
-Setelah itu buka URL Vercel Anda dan login. **Segera ganti password akun demo** bila aplikasi dipakai sungguhan.
+Jenis data awal diatur lewat env var opsional `SEED_MODE`:
+
+| Nilai | Isi |
+| --- | --- |
+| `demo` (default) | Data contoh 60 hari: produk, pemasok, pelanggan, penjualan, pembelian, kas & bank |
+| `minimal` | Hanya akun login & bagan akun, untuk dipakai sungguhan |
+| `none` | Tanpa data |
+
+Akun awal: `admin@minimarket.id` / `admin123`. **Segera ganti password** bila aplikasi dipakai sungguhan.
+
+Alternatif dari komputer sendiri: `npm run setup` lalu `DATABASE_URL="libsql://..." DATABASE_AUTH_TOKEN="..." npm run db:push`.
 
 ## Production di server sendiri
 
